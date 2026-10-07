@@ -1,0 +1,27 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <application android:name=".WakeMeUpApp" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:icon="@drawable/ic_launcher" android:label="wakemeup" android:theme="@style/AppTheme" android:supportsRtl="true">
+        <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+        <activity android:name=".alarm.AlarmActivity" android:exported="false" android:excludeFromRecents="true" android:launchMode="singleTop" />
+        <receiver android:name=".alarm.AlarmReceiver" android:exported="false" />
+        <service android:name=".alarm.AlarmPlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <service android:name=".sync.PhoneWearListener" android:exported="true">
+            <intent-filter><action android:name="com.google.android.gms.wearable.DATA_CHANGED" /><data android:scheme="wear" android:host="*" android:pathPrefix="/wakemeup/" /></intent-filter>
+            <intent-filter><action android:name="com.google.android.gms.wearable.CAPABILITY_CHANGED" /><data android:scheme="wear" android:host="*" android:path="/wakemeup_watch" /></intent-filter>
+        </service>
+        <receiver android:name=".sync.PhoneBootReceiver" android:exported="false"><intent-filter>
+            <action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+        </intent-filter></receiver>
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.files" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+</manifest>

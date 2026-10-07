@@ -1,0 +1,2 @@
+<!-- Read by Google Play Services using its conventional resource name. -->
+<resources xmlns:tools="http://schemas.android.com/tools"><string-array name="android_wear_capabilities" tools:ignore="UnusedResources"><item>wakemeup_phone</item></string-array></resources>
