@@ -9,17 +9,18 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
 data class DeviceState(val connectedNodes: Set<String> = emptySet(), val exact: Boolean = false, val notifications: Boolean = false, val fullScreen: Boolean = false, val busy: Boolean = false, val message: String? = null)
-data class HomeState(val settings: AppSettings = AppSettings(), val watch: WatchStatus = WatchStatus(), val session: SleepSession? = null, val logs: List<LogEntity> = emptyList(), val device: DeviceState = DeviceState()) {
+data class HomeState(val settings: AppSettings = AppSettings(), val watch: WatchStatus = WatchStatus(), val session: SleepSession? = null, val logs: List<LogEntity> = emptyList(), val device: DeviceState = DeviceState(), val history: List<SleepSession> = emptyList()) {
     val watchConnected get() = watch.nodeId in device.connectedNodes
     val verified get() = watch.nodeId.isNotBlank() && settings.verifiedNode == watch.nodeId
     val canStart get() = device.exact && device.notifications && watchConnected && watch.supported && watch.permission && session?.isActive != true && !device.busy
+    val validationSessions get() = history.filter { it.isValidationRecordFor(watch.nodeId) }
 }
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as WakeMeUpApp
     private val device = MutableStateFlow(DeviceState())
     init { viewModelScope.launch { app.dataLayer.connectionState.collect { nodes -> device.update { it.copy(connectedNodes = nodes) } } } }
-    val state = combine(app.settings.settings, app.settings.watch, app.database.sessions().observeLatest(), app.database.sessions().logs(), device) { settings, watch, session, logs, device ->
-        HomeState(settings, watch, session?.session, logs, device)
+    val state = combine(app.settings.settings, app.settings.watch, app.database.sessions().history(), app.database.sessions().logs(), device) { settings, watch, history, logs, device ->
+        HomeState(settings, watch, history.firstOrNull()?.session, logs, device, history.map { it.session })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeState())
     fun refresh() = run {
         device.update { it.copy(exact = app.scheduler.exactAccess(), notifications = app.scheduler.notificationAccess(), fullScreen = app.scheduler.fullScreenAccess()) }
@@ -38,12 +39,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun cancel() = action { app.coordinator.cancel() }
     fun recover() = action { app.coordinator.restore(); refresh() }
-    fun verify(notes: String, confirmed: Boolean) = action {
-        val s = state.value; val session = s.session
-        check(confirmed && session?.validationOnly == true && session.onsetAt != null && session.receivedAt != null && session.alarmAt?.isAfter(session.receivedAt) == true && session.watchNodeId == s.watch.nodeId && s.watch.supported) { "기상 전 수신된 실제 워치 이벤트와 검증 확인이 필요합니다." }
-        require(notes.isNotBlank()) { "입면 추정 차이·배터리·소리/진동 검증 결과를 입력해 주세요." }
-        app.coordinator.record("FIELD_VALIDATION", notes)
-        app.settings.verify(s.watch.nodeId)
+    fun verify(sessionId: String, notes: String, confirmed: Boolean) = action {
+        FieldValidation(app.store, app.settings).save(sessionId, state.value.watch, notes, confirmed)
         device.update { it.copy(message = "실기기 검증을 기록했습니다. 진행 중인 검증 세션을 끝내면 자동 알람을 시작할 수 있습니다.") }
     }
     fun record(notes: String) = action { require(notes.isNotBlank()); app.coordinator.record("FIELD_NOTE", notes) }

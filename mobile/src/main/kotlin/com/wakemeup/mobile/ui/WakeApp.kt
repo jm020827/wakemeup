@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wakemeup.core.*
 import com.wakemeup.mobile.*
+import com.wakemeup.mobile.data.canValidateFor
 import java.time.*
 import java.time.format.DateTimeFormatter
 
@@ -141,8 +142,12 @@ private fun status(s: SleepSession?): String = when (s?.status) {
     } } }
 }
 @Composable private fun SettingsAndValidation(s: HomeState, model: HomeViewModel, onExact: () -> Unit, onNotifications: () -> Unit, onFullScreen: () -> Unit, onExport: () -> Unit) {
-    var notes by rememberSaveable { mutableStateOf("") }
-    var confirmed by rememberSaveable { mutableStateOf(false) }
+    var selectedSessionId by rememberSaveable(s.watch.nodeId) { mutableStateOf("") }
+    val records = s.validationSessions
+    val selected = records.firstOrNull { it.sessionId == selectedSessionId } ?: records.firstOrNull()
+    var notes by rememberSaveable(selected?.sessionId) { mutableStateOf("") }
+    var confirmed by rememberSaveable(selected?.sessionId) { mutableStateOf(false) }
+    var choosingRecord by rememberSaveable { mutableStateOf(false) }
     Text("설정과 실기기 검증", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
     Text("${s.watch.name}\n${if (s.verified) "이 워치의 수신 검증 완료" else "자동 알람을 위한 실제 취침 테스트 필요"}", color = Lavender)
     Surface(shape = RoundedCornerShape(20.dp), color = Panel) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -155,13 +160,35 @@ private fun status(s: SleepSession?): String = when (s?.status) {
         OutlinedButton(onClick = onFullScreen, modifier = Modifier.fillMaxWidth()) { Text("잠금 화면 전체 화면 알람 설정") }
     } }
     Note("첫 취침 테스트", "워치를 착용하고 수신 검증을 시작하세요. 기상 전에 원래 입면시각이 도착하는지 확인하고, 예비 알람의 소리·진동을 잠금·절전·수면모드에서 확인하세요.")
-    s.session?.let { Detail("추정 입면", localTime(it.onsetAt)); Detail("수신 시각", localTime(it.receivedAt)); if (it.onsetAt != null && it.receivedAt != null) Detail("수신 지연", "${Duration.between(it.onsetAt, it.receivedAt).toMinutes()}분") }
+    if (selected != null) {
+        Surface(shape = RoundedCornerShape(20.dp), color = Panel) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("검증할 수신 기록", fontWeight = FontWeight.Bold)
+            Text("새 감시를 시작해도 이전 수신 기록으로 검증할 수 있어요.", color = Muted, fontSize = 12.sp)
+            Detail("감시 시작", localTime(selected.monitorStartedAt))
+            Detail("추정 입면", localTime(selected.onsetAt))
+            Detail("수신 시각", localTime(selected.receivedAt))
+            Detail("수신 지연", "${Duration.between(selected.onsetAt, selected.receivedAt).toMinutes()}분")
+            Detail("계산된 기상 · 검증용", localTime(selected.alarmAt))
+            if (records.size > 1) OutlinedButton(onClick = { choosingRecord = true }, modifier = Modifier.fillMaxWidth()) { Text("다른 수신 기록 선택") }
+        } }
+        if (!selected.canValidateFor(s.watch)) Note("검증 조건을 확인해 주세요", "수신이 계산된 기상시각보다 빨라야 하며, 현재 워치의 수면 상태 지원이 확인되어야 합니다.")
+    } else Note("수신 기록이 아직 없어요", "이 워치의 입면 정보가 휴대폰에 도착하면 검증할 수 있어요. 새 감시를 시작해도 이전에 받은 기록은 유지됩니다.")
     OutlinedTextField(value = notes, onValueChange = { notes = it }, modifier = Modifier.fillMaxWidth(), minLines = 4, label = { Text("실제 취침 테스트 기록") }, placeholder = { Text("실제 입면 00:20 / 추정 차이 +10분\n기상 전 수신 여부, 잠금·절전·수면모드 소리·진동\n배터리 90% → 82%, 기기·OS 버전") })
     Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = confirmed, onCheckedChange = { confirmed = it }); Text("원래 입면시각이 기상 전에 수신되고 소리·진동이 정상 동작함을 실기기에서 확인했어요.", fontSize = 13.sp) }
-    Button(onClick = { model.verify(notes, confirmed) }, enabled = confirmed && notes.isNotBlank() && s.session?.validationOnly == true && s.session.onsetAt != null && !s.device.busy, modifier = Modifier.fillMaxWidth()) { Text("검증 결과 저장 · 자동 알람 활성화") }
+    Button(onClick = { selected?.let { model.verify(it.sessionId, notes, confirmed) } }, enabled = confirmed && notes.isNotBlank() && selected?.canValidateFor(s.watch) == true && !s.device.busy, modifier = Modifier.fillMaxWidth()) { Text("검증 결과 저장 · 자동 알람 활성화") }
     OutlinedButton(onClick = { model.record(notes) }, enabled = notes.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("테스트 메모만 저장") }
     OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text("검증 로그 CSV 내보내기") }
     Text("서버·계정 없이 이 기기에 저장합니다. 목표 시간은 입면 후 경과시간이며 중간 각성 시간을 빼지 않습니다.", color = Muted, fontSize = 12.sp)
+    if (choosingRecord) AlertDialog(onDismissRequest = { choosingRecord = false }, title = { Text("검증할 수신 기록 선택") }, text = {
+        Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+            records.forEach { record -> TextButton(onClick = { selectedSessionId = record.sessionId; choosingRecord = false }, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("${localTime(record.onsetAt)} 입면 · ${duration(record.targetMinutes)}")
+                    Text("휴대폰 수신 ${localTime(record.receivedAt)}", color = Muted, fontSize = 12.sp)
+                }
+            } }
+        }
+    }, confirmButton = { TextButton(onClick = { choosingRecord = false }) { Text("닫기") } })
 }
 @Composable private fun Detail(label: String, value: String, color: Color = MaterialTheme.colorScheme.onSurface) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label, color = Muted, fontSize = 13.sp, modifier = Modifier.weight(1f)); Text(value, color = color, fontSize = 13.sp) } }
 @Composable private fun Note(title: String, body: String) { Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFF242941)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(title, color = Dawn, fontWeight = FontWeight.Medium); Text(body, fontSize = 13.sp, color = Muted) } } }

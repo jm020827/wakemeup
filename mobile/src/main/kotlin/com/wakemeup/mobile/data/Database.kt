@@ -37,7 +37,7 @@ class SessionConverters {
     @Query("SELECT * FROM sessions ORDER BY startedAt DESC, rowid DESC LIMIT 1") suspend fun latest(): SessionEntity?
     @Query("SELECT * FROM sessions WHERE id = :id") suspend fun find(id: String): SessionEntity?
     @Query("SELECT * FROM sessions ORDER BY startedAt DESC, rowid DESC LIMIT 1") fun observeLatest(): Flow<SessionEntity?>
-    @Query("SELECT * FROM sessions ORDER BY startedAt DESC LIMIT 10") fun history(): Flow<List<SessionEntity>>
+    @Query("SELECT * FROM sessions ORDER BY startedAt DESC, rowid DESC") fun history(): Flow<List<SessionEntity>>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun save(session: SessionEntity)
     @Insert suspend fun log(log: LogEntity)
     @Query("SELECT * FROM logs ORDER BY id DESC LIMIT 150") fun logs(): Flow<List<LogEntity>>
