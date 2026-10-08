@@ -9,3 +9,12 @@ local.properties
 *.keystore
 captures/
 .DS_Store
+
+# Apple build products and local signing settings
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.ipa
+*.mobileprovision
+ios/Configuration/Signing.local.xcconfig

@@ -2,6 +2,8 @@
 
 워치가 추정한 **원래 입면시각 + 목표 시간**에 Android 휴대폰 알람을 울리는 앱입니다. [MVP 명세](sleep_onset_alarm_spec.md)를 Kotlin으로 구현했습니다.
 
+**Apple 버전**도 `ios/`에 있습니다. iOS/iPadOS 26·watchOS 26 이상을 대상으로 SwiftUI·AlarmKit·HealthKit를 사용하며, Mac에서 `ios/WakeMeUp.xcodeproj`를 열면 됩니다. 설치와 Apple 플랫폼의 수면 기록 전달 제약은 [iOS 안내](ios/README.md)를 참고하세요. Apple SDK 전체 빌드와 실기기 시험은 아직 확인되지 않았습니다.
+
 예: 서울 시각 00:20 입면, 03:20 이벤트 수신, 목표 6시간 → 06:20 알람. 감시 시작 시각이나 이벤트 수신 시각부터 6시간을 세지 않습니다.
 
 ## 프로젝트
