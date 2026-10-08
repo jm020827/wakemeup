@@ -8,6 +8,7 @@ import com.wakemeup.mobile.alarm.PhoneAlarmScheduler
 import com.wakemeup.mobile.data.*
 import java.time.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -38,6 +39,20 @@ class AndroidIntegrationTest {
         val ringing = s.copy(status = SessionStatus.RINGING, firedKind = AlarmKind.BACKUP, firedAt = Instant.ofEpochMilli(2000))
         assertEquals(ringing, converters.decode(converters.encode(ringing)))
     }
+    @Test fun oldNightEventsRemainAvailableAfterRecentDiagnosticNoise() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val dao = database.sessions()
+            dao.log(LogEntity(sessionId = "old-night", at = 1000, kind = "SCHEDULED", detail = "reserved"))
+            dao.log(LogEntity(sessionId = "old-night", at = 2000, kind = "CANCEL", detail = "ended"))
+            repeat(160) { dao.log(LogEntity(sessionId = "new-night", at = 3000L + it, kind = "WATCH", detail = "status")) }
+            assertEquals(150, dao.logs().first().size)
+            val events = dao.sleepEvents().first()
+            assertEquals(listOf("SCHEDULED", "CANCEL"), events.map { it.kind })
+            val night = SleepSession("old-night", Instant.ofEpochMilli(500), 360, status = SessionStatus.CANCELLED)
+            assertEquals(Instant.ofEpochMilli(2000), com.wakemeup.mobile.ui.recordedEnd(night, events, Instant.now()))
+        } finally { database.close() }
+    }
     @Test fun alarmClockReservationsAreUniqueAndCancelledIndependently() {
         val scheduler = PhoneAlarmScheduler(context)
         val now = Instant.now()
@@ -64,6 +79,30 @@ class AndroidIntegrationTest {
         val scheduler = PhoneAlarmScheduler(context)
         assertFalse(scheduler.notificationAccess())
         assertThrows(IllegalStateException::class.java) { scheduler.schedule("denied", AlarmKind.BACKUP, Instant.now().plusSeconds(60)) }
+    }
+    @Test fun upgradingLegacyMonitoringPreservesStoredOnsetAndSchedulesRealAlarm() = runBlocking {
+        val database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val store = RoomSessionStore(database.sessions())
+            val now = Instant.now()
+            val onset = now.minusSeconds(3600)
+            val old = SleepSession("legacy", onset.minusSeconds(1200), 360, now.plusSeconds(6 * 3600), true, "watch",
+                onsetAt = onset, receivedAt = now.minusSeconds(1200), watchReceivedAt = now.minusSeconds(1201),
+                alarmAt = onset.plusSeconds(6 * 3600), status = SessionStatus.OBSERVED, backupScheduled = true)
+            val scheduler = PhoneAlarmScheduler(context)
+            store.save(old)
+            scheduler.schedule(old.sessionId, AlarmKind.BACKUP, old.backupAt!!)
+            val coordinator = SessionCoordinator(store, scheduler, WatchBridge {}, Clock.fixed(now, ZoneOffset.UTC))
+            coordinator.enableAutomaticAlarms()
+            val updated = store.latest()!!
+            assertFalse(updated.validationOnly)
+            assertEquals(old.onsetAt, updated.onsetAt)
+            assertEquals(old.receivedAt, updated.receivedAt)
+            assertEquals(old.watchReceivedAt, updated.watchReceivedAt)
+            assertEquals(SessionStatus.SCHEDULED, updated.status)
+            assertEquals(1, Shadows.shadowOf(context.getSystemService(AlarmManager::class.java)).scheduledAlarms.size)
+            assertEquals(old.alarmAt!!.toEpochMilli(), context.getSystemService(AlarmManager::class.java).nextAlarmClock.triggerTime)
+        } finally { database.close() }
     }
     @Test fun delayedEventFlowsThroughRoomIntoRealAlarmManager() = runBlocking {
         val database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()

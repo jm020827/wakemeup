@@ -7,6 +7,7 @@ import com.wakemeup.mobile.WakeMeUpApp
 class RecoveryWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val app = applicationContext as WakeMeUpApp
+        app.coordinator.enableAutomaticAlarms()
         app.coordinator.restore()
         return try { app.dataLayer.refresh(); Result.success() } catch (_: Exception) { Result.retry() }
     }

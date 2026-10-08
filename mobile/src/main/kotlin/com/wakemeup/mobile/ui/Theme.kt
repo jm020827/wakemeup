@@ -9,6 +9,8 @@ val Panel = Color(0xFF1C2538)
 val Lavender = Color(0xFFC0B8FF)
 val Dawn = Color(0xFFFFD49E)
 val Muted = Color(0xFF9EAAC0)
+val Mint = Color(0xFF8EE4C7)
+val Coral = Color(0xFFFFB4AB)
 
 @Composable fun WakeTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = darkColorScheme(primary = Lavender, onPrimary = Night, secondary = Dawn, background = Night,

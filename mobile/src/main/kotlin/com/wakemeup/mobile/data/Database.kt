@@ -41,6 +41,8 @@ class SessionConverters {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun save(session: SessionEntity)
     @Insert suspend fun log(log: LogEntity)
     @Query("SELECT * FROM logs ORDER BY id DESC LIMIT 150") fun logs(): Flow<List<LogEntity>>
+    @Query("SELECT * FROM logs WHERE kind IN ('SCHEDULED', 'CANCEL', 'DISMISS', 'MISSED', 'MISSED_RESTORE', 'SCHEDULE_FAILED', 'RESTORE_FAILED', 'BACKUP_MISSED') ORDER BY id")
+    fun sleepEvents(): Flow<List<LogEntity>>
     @Query("SELECT * FROM logs ORDER BY id") suspend fun allLogs(): List<LogEntity>
 }
 @Database(entities = [SessionEntity::class, LogEntity::class], version = 1, exportSchema = true)

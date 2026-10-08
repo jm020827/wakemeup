@@ -187,6 +187,62 @@ class SessionCoordinatorTest {
         assertTrue(alarms.alarms.isEmpty()); clock.now = onset.plusSeconds(3 * 3600); coordinator.receive(event(s.sessionId))
         assertEquals(onset.plusSeconds(9 * 3600), store.latest()!!.alarmAt)
     }
+    @Test fun `legacy monitoring becomes automatic without inventing onset or changing backup`() = runTest {
+        val s = start(validation = true)
+        coordinator.enableAutomaticAlarms()
+        assertFalse(store.latest()!!.validationOnly)
+        assertNull(store.latest()!!.onsetAt)
+        assertEquals(s.monitorStartedAt, store.latest()!!.monitorStartedAt)
+        assertEquals(backup, alarms.alarms[s.sessionId to AlarmKind.BACKUP])
+        clock.now = onset.plusSeconds(1200)
+        coordinator.receive(event(s.sessionId))
+        assertEquals(SessionStatus.SCHEDULED, store.latest()!!.status)
+        assertEquals(onset, store.latest()!!.onsetAt)
+    }
+    @Test fun `legacy received onset schedules original target and preserves actual receipt`() = runTest {
+        val s = start(validation = true)
+        clock.now = onset.plusSeconds(1201)
+        coordinator.receive(event(s.sessionId))
+        val previous = store.latest()!!
+        coordinator.enableAutomaticAlarms()
+        val updated = store.latest()!!
+        assertFalse(updated.validationOnly)
+        assertEquals(previous.onsetAt, updated.onsetAt)
+        assertEquals(previous.receivedAt, updated.receivedAt)
+        assertEquals(previous.watchReceivedAt, updated.watchReceivedAt)
+        assertEquals(previous.alarmAt, alarms.alarms[s.sessionId to AlarmKind.TARGET])
+        assertFalse(alarms.alarms.containsKey(s.sessionId to AlarmKind.BACKUP))
+        assertFalse(commands.last().validationOnly)
+    }
+    @Test fun `legacy upgrade never rings a past target or changes closed historical records`() = runTest {
+        val s = start(validation = true)
+        clock.now = onset.plusSeconds(6 * 3600)
+        coordinator.receive(event(s.sessionId))
+        coordinator.enableAutomaticAlarms()
+        assertEquals(SessionStatus.FAILED, store.latest()!!.status)
+        assertEquals(backup, alarms.alarms[s.sessionId to AlarmKind.BACKUP])
+        assertFalse(alarms.alarms.containsKey(s.sessionId to AlarmKind.TARGET))
+        coordinator.cancel()
+        val ended = store.latest()
+        coordinator.enableAutomaticAlarms()
+        assertEquals(ended, store.latest())
+    }
+    @Test fun `upgrade leaves a ringing backup active`() = runTest {
+        val s = start(validation = true)
+        clock.now = backup
+        coordinator.ring(s.sessionId, AlarmKind.BACKUP)
+        val ringing = store.latest()
+        coordinator.enableAutomaticAlarms()
+        assertEquals(ringing, store.latest())
+    }
+    @Test fun `unchanged watch status does not flood diagnostic logs`() = runTest {
+        val s = start()
+        coordinator.monitoring(s.sessionId, true, null)
+        repeat(20) { coordinator.monitoring(s.sessionId, true, null) }
+        assertEquals(1, store.logs.count { it.kind == "WATCH" })
+        coordinator.monitoring(s.sessionId, false, "permission lost")
+        assertEquals(2, store.logs.count { it.kind == "WATCH" })
+    }
     @Test fun `next backup handles midnight and daylight saving in local zone`() {
         val seoul = ZoneId.of("Asia/Seoul")
         assertEquals(Instant.parse("2026-10-07T22:00:00Z"), AlarmMath.nextBackup(Instant.parse("2026-10-06T23:00:00Z"), LocalTime.of(7, 0), seoul))

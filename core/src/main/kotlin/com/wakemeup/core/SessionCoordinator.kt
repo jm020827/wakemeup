@@ -55,6 +55,26 @@ class SessionCoordinator(
         sync(cancelled)
     }
 
+    /** Upgrade an active session from the old UI without replacing its real timestamps. */
+    suspend fun enableAutomaticAlarms() = mutex.withLock {
+        val previous = store.latest()?.takeIf { it.validationOnly && it.isActive && it.status != SessionStatus.RINGING }
+            ?: return@withLock
+        val automatic = previous.copy(validationOnly = false)
+        store.save(automatic)
+        log(automatic, "SESSION_UPGRADED", "기존 감시를 자동 알람으로 전환; 입면·수신 기록 유지")
+        if (automatic.alarmAt != null) {
+            if (automatic.alarmAt.isAfter(clock.instant())) {
+                val pending = automatic.copy(status = SessionStatus.SCHEDULING)
+                store.save(pending)
+                scheduleTarget(pending)
+            } else {
+                store.save(automatic.copy(status = SessionStatus.FAILED, failure = "목표 기상시각이 이미 지났습니다. 예비 알람을 유지합니다."))
+                log(automatic, "MISSED", "기존 입면의 기상시각 경과; 예비 알람 유지")
+            }
+        }
+        sync(store.find(automatic.sessionId) ?: automatic)
+    }
+
     suspend fun receive(event: SleepEvent) = mutex.withLock {
         val s = store.latest() ?: return@withLock
         val now = clock.instant()
@@ -105,7 +125,9 @@ class SessionCoordinator(
 
     suspend fun monitoring(id: String, ready: Boolean, error: String?) = mutex.withLock {
         val s = store.latest()?.takeIf { it.sessionId == id && it.isActive && it.status != SessionStatus.RINGING } ?: return@withLock
-        store.save(s.copy(watchMonitoring = ready, failure = if (s.status == SessionStatus.FAILED) s.failure else if (ready) null else error ?: s.failure))
+        val updated = s.copy(watchMonitoring = ready, failure = if (s.status == SessionStatus.FAILED) s.failure else if (ready) null else error ?: s.failure)
+        if (updated == s) return@withLock
+        store.save(updated)
         log(s, "WATCH", if (ready) "워치 감시 등록 완료" else error ?: "워치 감시 중단")
     }
 
